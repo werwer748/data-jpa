@@ -15,6 +15,15 @@ spring:
         # show_sql: true # 콘솔에 쿼리를 보여줌
         format_sql: true # 콘솔에 쿼리 이쁘게
 
+  data:
+    web:
+      # 컨트롤러에서 Pageable 파라미터 바인딩시 초기값 세팅 - 글로벌 세팅
+      pageable:
+        default-page-size: 10
+        max-page-size: 2000
+        # Pageable 사용시 1부터 페이징 시작 - 데이터가 안맞는 부분이 있어서 주의!
+#        one-indexed-parameters: true
+
 logging.level:
   org.hibernate.SQL: debug # 쿼리를 로그로 남김(파일로 남길 수 있다.)
 #  org.hibernate.orm.jdbc.bind: trace # 파라미터 바인딩 값을 보여줌
