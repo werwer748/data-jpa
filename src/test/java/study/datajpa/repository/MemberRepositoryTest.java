@@ -5,10 +5,8 @@ import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Slice;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.*;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
 import study.datajpa.dto.MemberDto;
@@ -26,8 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 @Rollback(false)
 class MemberRepositoryTest {
 
-    @Autowired MemberRepository memberRepository;
-    @Autowired TeamRepository teamRepository;
+    @Autowired
+    MemberRepository memberRepository;
+    @Autowired
+    TeamRepository teamRepository;
     @PersistenceContext
     EntityManager em;
 
@@ -301,5 +301,138 @@ class MemberRepositoryTest {
     @Test
     public void callCustom() {
         List<Member> result = memberRepository.findMemberCustom();
+    }
+
+    @Test
+    public void specBasic() {
+        // given
+        Team teamA = new Team("teamA");
+        teamRepository.save(teamA);
+
+        Member m1 = new Member("m1", 10, teamA);
+        Member m2 = new Member("m2", 20, teamA);
+        memberRepository.save(m1);
+        memberRepository.save(m2);
+
+        em.flush();
+        em.clear();
+
+        // when
+        /**
+         * Specification을 구현하여 명세들을 조립해 사용할 수 있다.
+         * where(), and(), or(), not() 등을 사용할 수 있다.
+         * findAll에 명세를 넘겨주면 조립된 명세대로 쿼리를 날린다.
+         *
+         * criteria자체가 복잡해서 실무에서 사용성이 떨어진다.
+         * 자바코드를 조립해서 사용할 수 있다는건 장점이긴 함.
+         */
+        Specification<Member> spec = MemberSpec.username("m1").and(MemberSpec.teamName("teamA"));
+        List<Member> result = memberRepository.findAll(spec);
+
+        // then
+        assertThat(result.size()).isEqualTo(1);
+    }
+
+    @Test // 쿼리가 동적으로 나가야 할 때 쓸 수 있다.
+    public void queryByExample() {
+        // given
+        Team teamA = new Team("teamA");
+        teamRepository.save(teamA);
+
+        Member m1 = new Member("m1", 10, teamA);
+        Member m2 = new Member("m2", 0, teamA);
+        memberRepository.save(m1);
+        memberRepository.save(m2);
+
+        em.flush();
+        em.clear();
+
+        // when
+        /**
+         * 엔티티 자체가 검색 조건이 된다. - Probe 생성
+         * 엔티티에 age없을시 where age = 0 조건이 걸림 - age는 primitive type이기 때문!
+         *
+         * 복잡한 죠인에는 사용할 수가 없음... - 한계가 명확하다.(inner join만 가능)
+         */
+        Member member = new Member("m1");
+        Team team = new Team("teamA");
+        /**
+         * join -> join 확인
+         *   team t1_0
+         *       on t1_0.team_id=m1_0.team_id
+         * where -> where 확인
+         *     t1_0.name=?
+         *     and m1_0.username=?
+         */
+        member.setTeam(team); // 연관관계 설정 - join
+
+        // where에 age 조건을 무시한다.
+        ExampleMatcher matcher = ExampleMatcher.matching().withIgnorePaths("age");
+
+        //* Example: Probe와 ExampleMatcher로 구성 -> 쿼리 생성에 사용한다.
+        Example<Member> example = Example.of(member, matcher);
+
+        /**
+         * JpaRepository에서 제공하는 findAll에 Example을 넘겨주면 됨. - QueryByExampleExecutor를 넘기는 것
+         * Jpa가 기본적으로 제공하는 기능
+         */
+        List<Member> result = memberRepository.findAll(example);
+
+        assertThat(result.get(0).getUsername()).isEqualTo("m1");
+    }
+
+    @Test
+    public void projections() {
+        // given
+        Team teamA = new Team("teamA");
+        teamRepository.save(teamA);
+
+        Member m1 = new Member("m1", 10, teamA);
+        Member m2 = new Member("m2", 0, teamA);
+        memberRepository.save(m1);
+        memberRepository.save(m2);
+
+        em.flush();
+        em.clear();
+
+        // when
+        //* 인터페이스 기반 프로젝션
+//        List<UsernameOnly> result = memberRepository.findProjectionsByUsername("m1");
+        //* 클래스 기반 프로젝션
+//        List<UsernameOnlyDto> result = memberRepository.findProjectionsByUsername("m1");
+        //* 클래스 기반 프로젝션 - 동적 프로젝션 사용
+//        List<UsernameOnlyDto> result = memberRepository.findProjectionsByUsername("m1", UsernameOnlyDto.class);
+
+        //* 프로젝션 해오는 타입만 바꿔가면서 사용 - 동적 프로젝션 활용
+        List<NestedClosedProjections> result = memberRepository.findProjectionsByUsername("m1", NestedClosedProjections.class);
+
+        for (NestedClosedProjections nestedClosedProjections : result) {
+            System.out.println("nestedClosedProjections = " + nestedClosedProjections.getUsername());
+            System.out.println("nestedClosedProjections = " + nestedClosedProjections.getTeam().getName());
+        }
+    }
+
+    @Test
+    public void nativeQuery() {
+        // given
+        Team teamA = new Team("teamA");
+        teamRepository.save(teamA);
+
+        Member m1 = new Member("m1", 10, teamA);
+        Member m2 = new Member("m2", 0, teamA);
+        memberRepository.save(m1);
+        memberRepository.save(m2);
+
+        em.flush();
+        em.clear();
+
+        // when
+        Page<MemberProjection> result = memberRepository.findByNativeProjection("m1", PageRequest.of(0, 10));
+        List<MemberProjection> content = result.getContent();
+        for (MemberProjection memberProjection : content) {
+            System.out.println("memberProjection = " + memberProjection.getId());
+            System.out.println("memberProjection = " + memberProjection.getUsername());
+            System.out.println("memberProjection = " + memberProjection.getTeamName());
+        }
     }
 }

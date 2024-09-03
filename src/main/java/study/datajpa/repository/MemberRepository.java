@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Optional;
 
 //? 사용자 정의 레포지토리를 상속받으면 사용할 수 있음
-public interface MemberRepository extends JpaRepository<Member, Long>, MemberRepositoryCustom {
+public interface MemberRepository extends JpaRepository<Member, Long>, MemberRepositoryCustom, JpaSpecificationExecutor<Member> {
 
     //* 유저이름이 같고 나이가 특정나이 이상인 결과를 원함 - 구현체를 만들지 않았다.
     List<Member> findByUsernameAndAgeGreaterThan(String username, int age);
@@ -163,4 +163,33 @@ public interface MemberRepository extends JpaRepository<Member, Long>, MemberRep
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Member findLockByUsername(String username);
+
+    //* 인터페이스 기반 프로젝션
+//    List<UsernameOnly> findProjectionsByUsername(@Param("username") String username);
+
+    //* 클래스 기반 프로젝션
+//    List<UsernameOnlyDto> findProjectionsByUsername(@Param("username") String username);
+    //* 동적 프로젝션으로 업그레이드 해보기
+    <T> List<T> findProjectionsByUsername(@Param("username") String username, Class<T> type);
+
+    /**
+     * 네이티브 쿼리
+     * 가급적 네이티브 쿼리는 사용하지 않는게 좋음, 정말 어쩔 수 없을 때 사용
+     * -> 스프링 데이터 Projections 활용
+     *
+     * nativeQuery = true: 네이티브 쿼리를 사용하겠다는 것
+     * JPQL을 실제 쿼리처럼 작성
+     */
+    @Query(value = "select * from member where username = ?", nativeQuery = true)
+    Member findByNativeQuery(String username);
+
+    //? 네이티브 쿼리를 사용하여 프로젝션 조회 - Page 사용 가능
+    @Query(value = "select m.member_id as id, m.username, t.name as teamName from member m " +
+            "left join team t where m.username = :username",
+            countQuery = "select count(*) from member",
+            nativeQuery = true)
+    Page<MemberProjection> findByNativeProjection(
+            @Param("username") String username,
+            Pageable pageable
+    );
 }
